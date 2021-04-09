@@ -6,6 +6,7 @@
 
 #include "ros_publisher.h"
 #include <ros/node_handle.h>
+#include <tf2/LinearMath/Quaternion.h>
 
 ROSPublisher::ROSPublisher() : nh("~"), diagPub(nh)
 {
@@ -13,6 +14,7 @@ ROSPublisher::ROSPublisher() : nh("~"), diagPub(nh)
     nh.param("time_source", time_source, std::string("ins"));
     nh.param("time_origin", time_origin, std::string("unix"));
     nh.param("use_compensated_acceleration", use_compensated_acceleration, false);
+    nh.param("use_euler_angles_for_quaternion", use_euler_angles_for_quaternion, false);
 
     if(time_source == std::string("ros"))
     {
@@ -76,7 +78,7 @@ void ROSPublisher::onNewStdBinData(
         }
     }
 
-    auto imuMsg = toImuMsg(navData, use_compensated_acceleration);
+    auto imuMsg = toImuMsg(navData, use_compensated_acceleration, use_euler_angles_for_quaternion);
     auto navsatfixMsg = toNavSatFixMsg(navData);
     auto iXinsMsg = toiXInsMsg(navData);
 
@@ -161,12 +163,13 @@ ROSPublisher::getHeader(const ixblue_stdbin_decoder::Data::NavHeader& headerData
 
 sensor_msgs::ImuPtr
 ROSPublisher::toImuMsg(const ixblue_stdbin_decoder::Data::BinaryNav& navData,
-                       bool use_compensated_acceleration)
+                       bool use_compensated_acceleration, bool use_euler_angles_for_quaternion)
 {
 
     // --- Check if there are enough data to send the message
     if(!navData.rotationRateVesselFrame.is_initialized() ||
-       !navData.attitudeQuaternion.is_initialized() ||
+       (!use_euler_angles_for_quaternion && !navData.attitudeQuaternion.is_initialized()) ||
+       (use_euler_angles_for_quaternion && !navData.attitudeHeading.is_initialized()) ||
        (use_compensated_acceleration &&
         !navData.accelerationVesselFrame.is_initialized()) ||
        (!use_compensated_acceleration &&
@@ -179,11 +182,28 @@ ROSPublisher::toImuMsg(const ixblue_stdbin_decoder::Data::BinaryNav& navData,
     sensor_msgs::ImuPtr res = boost::make_shared<sensor_msgs::Imu>();
 
     // --- Orientation
-    res->orientation.x = navData.attitudeQuaternion.get().q1;
-    res->orientation.y = navData.attitudeQuaternion.get().q2;
-    res->orientation.z = navData.attitudeQuaternion.get().q3;
-    // Must negate w to get a correct quaternion and match attitudeHeading output
-    res->orientation.w = -navData.attitudeQuaternion.get().q0;
+    if(!use_euler_angles_for_quaternion)
+    {
+        res->orientation.x = navData.attitudeQuaternion.get().q1;
+        res->orientation.y = navData.attitudeQuaternion.get().q2;
+        res->orientation.z = navData.attitudeQuaternion.get().q3;
+        // Must negate w to get a correct quaternion and match attitudeHeading output
+        res->orientation.w = -navData.attitudeQuaternion.get().q0;
+    }
+    else
+    {
+        double heading_rad = navData.attitudeHeading.get().heading_deg * M_PI / 180.;
+        double roll_rad = navData.attitudeHeading.get().roll_deg * M_PI / 180.;
+        double pitch_rad = navData.attitudeHeading.get().pitch_deg * M_PI / 180.;
+
+        tf2::Quaternion q;
+        q.setRPY(roll_rad, pitch_rad, heading_rad);
+
+        res->orientation.x = q.x();
+        res->orientation.y = q.y();
+        res->orientation.z = q.z();
+        res->orientation.w = q.w();
+    }
 
     // --- Orientation SD
     if(navData.attitudeQuaternionDeviation.is_initialized() == false)

@@ -22,7 +22,7 @@ public:
     // Standard ros msgs
     static sensor_msgs::ImuPtr
     toImuMsg(const ixblue_stdbin_decoder::Data::BinaryNav& navData,
-             bool use_compensated_acceleration);
+             bool use_compensated_acceleration, bool use_euler_angles_for_quaternion);
     static sensor_msgs::NavSatFixPtr
     toNavSatFixMsg(const ixblue_stdbin_decoder::Data::BinaryNav& navData);
     static sensor_msgs::TimeReferencePtr
@@ -42,6 +42,7 @@ protected:
     std::string time_source;
     std::string time_origin;
     bool use_compensated_acceleration;
+    bool use_euler_angles_for_quaternion;
 
     ros::NodeHandle nh;
 
